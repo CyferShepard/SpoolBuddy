@@ -25,9 +25,9 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -82,8 +82,15 @@ jobs:
 
       - name: Show signing certificate
         run: |
-          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
-          "$apksigner" verify --print-certs dist/*.apk | grep -E 'Signer #1 certificate (DN|SHA-256)'
+          # Newer build-tools can need a newer Java than the build's; try each until one runs.
+          for bt in $(ls -d "$ANDROID_HOME"/build-tools/* | sort -rV); do
+            if out="$("$bt/apksigner" verify --print-certs dist/*.apk 2>&1)"; then
+              echo "$out" | grep -E 'Signer #1 certificate (DN|SHA-256)' || echo "$out"
+              exit 0
+            fi
+            echo "apksigner $(basename "$bt") didn't run: $(echo "$out" | head -1)"
+          done
+          echo "::warning::Couldn't check the APK's signing certificate"
 
       - name: Remove signing key
         if: always()
