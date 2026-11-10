@@ -85,7 +85,7 @@ jobs:
           # Newer build-tools can need a newer Java than the build's; try each until one runs.
           for bt in $(ls -d "$ANDROID_HOME"/build-tools/* | sort -rV); do
             if out="$("$bt/apksigner" verify --print-certs dist/*.apk 2>&1)"; then
-              echo "$out" | grep -E 'Signer #1 certificate (DN|SHA-256)' || echo "$out"
+              echo "$out" | grep -E 'certificate (DN|SHA-256 digest):' || echo "$out"
               exit 0
             fi
             echo "apksigner $(basename "$bt") didn't run: $(echo "$out" | head -1)"
