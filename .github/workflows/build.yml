@@ -13,7 +13,29 @@ permissions:
   contents: read
 
 jobs:
+  # Pushing main and a tag together starts two runs for the same commit.
+  # The branch run stops here and leaves the build to the tag run.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      tagged: ${{ steps.check.outputs.tagged }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tagged=false
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_TYPE" == branch ]] &&
+             git ls-remote --tags "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" 'v*' |
+             grep -q "^${GITHUB_SHA}"; then
+            tagged=true
+            echo "::notice::This commit is tagged, so the tag's run builds it."
+          fi
+          echo "tagged=$tagged" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: gate
+    if: needs.gate.outputs.tagged != 'true'
     runs-on: ubuntu-latest
     env:
       # Repository secrets (Settings → Secrets and variables → Actions).
