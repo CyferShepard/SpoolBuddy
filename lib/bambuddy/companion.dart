@@ -27,7 +27,10 @@ class ScanResult {
 class PendingWrite {
   final int spoolId;
   final Uint8List ndefData;
-  const PendingWrite(this.spoolId, this.ndefData);
+
+  /// OpenTag3D v2 image for a tag with room for it; null from Bambuddy before 1.3.1.
+  final Uint8List? ndefV2;
+  const PendingWrite(this.spoolId, this.ndefData, [this.ndefV2]);
 }
 
 enum CompanionStatus { unpaired, offline, connecting, online }
@@ -243,6 +246,7 @@ class BambuddyCompanion extends ChangeNotifier {
   Future<void> _sendHeartbeat() async {
     final c = _client;
     if (c == null || deviceId == null || !_active) return;
+    final writesBefore = _writesDone;
     try {
       final r = await c.heartbeat(
         deviceId: deviceId!,
@@ -256,7 +260,7 @@ class BambuddyCompanion extends ChangeNotifier {
         lastError = null;
         notifyListeners();
       }
-      await _handleCommand(r);
+      await _handleCommand(r, writesBefore);
     } on BambuddyException catch (e) {
       if (e.unregistered) {
         await _register(); // an admin removed this device in Bambuddy; come back, like the daemon
@@ -268,10 +272,20 @@ class BambuddyCompanion extends ChangeNotifier {
     }
   }
 
-  @visibleForTesting
-  Future<void> handleCommandForTest(Map<String, dynamic> r) => _handleCommand(r);
+  /// Writes finished (written, failed or cancelled), and the spool of the last one.
+  /// A heartbeat sent before a write's result reached Bambuddy can still carry
+  /// that write's command; it's ignored rather than run again.
+  int _writesDone = 0;
+  int? _lastWriteSpool;
 
-  Future<void> _handleCommand(Map<String, dynamic> r) async {
+  @visibleForTesting
+  int get writesDone => _writesDone;
+
+  @visibleForTesting
+  Future<void> handleCommandForTest(Map<String, dynamic> r, [int? writesBefore]) =>
+      _handleCommand(r, writesBefore ?? _writesDone);
+
+  Future<void> _handleCommand(Map<String, dynamic> r, int writesBefore) async {
     final cmd = r['pending_command'];
     if (cmd is! String) return;
     final c = _client!;
@@ -282,7 +296,9 @@ class BambuddyCompanion extends ChangeNotifier {
       final hex = p['ndef_data_hex'];
       if (spoolId is! int || hex is! String) return;
       if (pendingWrite?.spoolId == spoolId) return; // still pending from an earlier heartbeat
-      pendingWrite = PendingWrite(spoolId, hexToBytes(hex));
+      if (spoolId == _lastWriteSpool && writesBefore != _writesDone) return; // that write is done
+      final v2 = p['ndef_v2_hex'];
+      pendingWrite = PendingWrite(spoolId, hexToBytes(hex), v2 is String && v2.isNotEmpty ? hexToBytes(v2) : null);
       notifyListeners();
       await nfc.cancel(); // interrupt the listening poll so the write can start
     } else if (cmd == 'apply_system_config') {
@@ -410,7 +426,7 @@ class BambuddyCompanion extends ChangeNotifier {
     writing = true;
     notifyListeners();
     try {
-      final records = parseNdefTlv(w.ndefData)
+      List<NDEFRawRecord> raw(List<ParsedNdefRecord> parsed) => parsed
           .map((r) => NDEFRawRecord(
                 bytesToHex(r.id),
                 bytesToHex(r.payload),
@@ -418,7 +434,9 @@ class BambuddyCompanion extends ChangeNotifier {
                 TypeNameFormat.values[r.tnf],
               ))
           .toList();
-      final uid = await nfc.writeNdefRecords(records);
+      final v2 = w.ndefV2 == null ? null : parseNdefTlv(w.ndefV2!);
+      final (uid, _) = await nfc.writeNdefRecords(raw(parseNdefTlv(w.ndefData)),
+          larger: v2 == null ? null : raw(v2), largerSize: v2 == null ? 0 : ndefMessageSize(v2));
       await c.writeResult(deviceId: deviceId!, spoolId: w.spoolId, tagUid: uid, success: true, message: 'Write successful');
       // The tag is still on the phone: treat it as already reported so the loop doesn't re-send it.
       lastScan = RawTagScan(uid, null, 'ntag');
@@ -442,19 +460,28 @@ class BambuddyCompanion extends ChangeNotifier {
       await _safe(() => c.cancelWrite(deviceId!));
       return 'Write failed: $e';
     } finally {
-      pendingWrite = null;
+      _finishWrite(w.spoolId);
       writing = false;
       notifyListeners();
     }
   }
 
+  void _finishWrite(int spoolId) {
+    pendingWrite = null;
+    _lastWriteSpool = spoolId;
+    _writesDone++;
+  }
+
   /// User dismissed the write prompt.
   Future<void> cancelWrite() async {
     final c = _client;
+    final w = pendingWrite;
     pendingWrite = null;
     await nfc.cancel();
     notifyListeners();
     if (c != null && deviceId != null) await _safe(() => c.cancelWrite(deviceId!));
+    // Counted once Bambuddy has dropped the command, as performWrite does.
+    if (w != null) _finishWrite(w.spoolId);
   }
 
   Future<void> _safe(Future<void> Function() f) async {

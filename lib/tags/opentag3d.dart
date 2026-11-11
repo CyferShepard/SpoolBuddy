@@ -55,6 +55,7 @@ class OpenTag3D {
   }
 
   static SpoolFromTag? decode(String uidHex, Uint8List p) {
+    if (p.length >= 2 && ((p[0] << 8) | p[1]) >= 2000) return _decodeV2(uidHex, p);
     if (p.length < _coreSize) return null;
     final material = _str(p, _offMaterial, 5);
     final modifiers = _str(p, _offModifiers, 5);
@@ -111,6 +112,48 @@ class OpenTag3D {
       slicerFilament: slicer.isEmpty ? null : slicer,
       note: notes.isEmpty ? null : notes.join('; '),
       dataOrigin: TagType.openTag3D,
+    );
+  }
+
+  /// OpenTag3D 2.x (2.000 moved every field), which Bambuddy 1.3.1 writes on
+  /// NTAG215/216. Bytes past the end of the payload read as 0, as the spec says.
+  static SpoolFromTag? _decodeV2(String uidHex, Uint8List payload) {
+    if (payload.length < 0x40) return null;
+    final p = Uint8List(0xA2)..setRange(0, payload.length < 0xA2 ? payload.length : 0xA2, payload);
+    final material = _str(p, 0x02, 5);
+    final manufacturer = _str(p, 0x0C, 16);
+    final colorName = _str(p, 0x1C, 32);
+    final primary = _color(p, 0x3C);
+    final diameterUm = _u16(p, 0x8C);
+    final target = _u8(p, 0x90), min = _u8(p, 0x91), max = _u8(p, 0x92);
+    final bed = _u8(p, 0x94);
+    final densityRaw = _u16(p, 0x9C);
+    final nozzle = min ?? target;
+
+    final slicer = _materialToSlicer[(material ?? '').toUpperCase()] ?? '';
+    final notes = <String>[
+      if (min != null && max != null && max != min) 'Nozzle ${min * 5}–${max * 5} °C'
+      else if (nozzle != null) 'Nozzle ${nozzle * 5} °C',
+      if (bed != null) 'Bed ${bed * 5} °C',
+      if (densityRaw != null) 'Density: ${(densityRaw / 1000).toStringAsFixed(2)} g/cm³',
+      if (diameterUm != null) 'Diameter: ${(diameterUm / 1000).toStringAsFixed(2)}mm',
+    ];
+
+    return SpoolFromTag(
+      tagId: uidToBase64(uidHex),
+      tagType: TagType.openTag3D,
+      material: material,
+      subtype: _str(p, 0x07, 5),
+      colorName: colorName,
+      rgba: primary,
+      brand: manufacturer,
+      labelWeight: _u16(p, 0x9E),
+      coreWeight: _u16(p, 0xA0),
+      slicerFilament: slicer.isEmpty ? null : slicer,
+      note: notes.isEmpty ? null : notes.join('; '),
+      dataOrigin: TagType.openTag3D,
+      nozzleTemp: nozzle == null ? null : nozzle * 5,
+      bedTemp: bed == null ? null : bed * 5,
     );
   }
 

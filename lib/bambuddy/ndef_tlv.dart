@@ -35,6 +35,18 @@ List<ParsedNdefRecord> parseNdefTlv(Uint8List data) {
   throw const FormatException('No NDEF message in tag data');
 }
 
+/// Bytes [records] take as an NDEF message, to compare with a tag's capacity.
+int ndefMessageSize(List<ParsedNdefRecord> records) => records.fold(
+    0,
+    (n, r) =>
+        n +
+        2 + // header, type length
+        (r.payload.length < 256 ? 1 : 4) +
+        (r.id.isEmpty ? 0 : 1) +
+        r.type.length +
+        r.id.length +
+        r.payload.length);
+
 List<ParsedNdefRecord> _parseMessage(Uint8List m) {
   final records = <ParsedNdefRecord>[];
   var i = 0;

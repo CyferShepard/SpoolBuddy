@@ -127,8 +127,12 @@ class NfcService {
   }
 
   /// Wait for an NTAG and write the NDEF records parsed from Bambuddy's tag image.
-  /// Returns the tag UID (hex). Throws [NfcException] with a UID when the tag is unsuitable.
-  Future<String> writeNdefRecords(List<NDEFRawRecord> records, {Duration timeout = const Duration(seconds: 30)}) async {
+  /// [larger] is written instead when the tag holds its [largerSize] bytes
+  /// (OpenTag3D v2 on an NTAG215/216, v1 on an NTAG213).
+  /// Returns the tag UID (hex) and whether [larger] was written.
+  /// Throws [NfcException] with a UID when the tag is unsuitable.
+  Future<(String, bool)> writeNdefRecords(List<NDEFRawRecord> records,
+      {List<NDEFRawRecord>? larger, int largerSize = 0, Duration timeout = const Duration(seconds: 30)}) async {
     final tag = await FlutterNfcKit.poll(timeout: timeout, readIso15693: false);
     try {
       final uidHex = tag.id.replaceAll(':', '').toUpperCase();
@@ -138,8 +142,9 @@ class NfcService {
       if (!(tag.ndefAvailable ?? false) || !(tag.ndefWritable ?? false)) {
         throw NfcException('This tag is not NDEF-writable.', uidHex: uidHex);
       }
-      await FlutterNfcKit.writeNDEFRawRecords(records);
-      return uidHex;
+      final useLarger = larger != null && largerSize <= (tag.ndefCapacity ?? 0);
+      await FlutterNfcKit.writeNDEFRawRecords(useLarger ? larger : records);
+      return (uidHex, useLarger);
     } finally {
       await cancel();
     }

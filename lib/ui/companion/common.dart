@@ -353,10 +353,10 @@ class _SlotPicker extends StatelessWidget {
         if (status != null)
           for (final t in status.vtTrays)
             _slotTile(context, store,
-                label: status.vtTrays.length > 1 ? (t.id == 254 ? 'Ext-L' : 'Ext-R') : 'External spool',
+                label: externalLabel(t.id, status.vtTrays.length, single: 'External spool'),
                 tray: t,
                 amsId: externalAmsId,
-                trayId: (t.id - 254).clamp(0, 1)),
+                trayId: externalSlotIndex(t.id)),
       ]),
     );
   }

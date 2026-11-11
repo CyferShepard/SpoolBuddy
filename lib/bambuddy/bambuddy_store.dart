@@ -41,7 +41,7 @@ class BambuddyStore extends ChangeNotifier {
     if (amsId == externalAmsId) return trayId == 0 ? 'Ext' : 'Ext ${trayId + 1}';
     final unit = status?.ams.where((u) => u.id == amsId).firstOrNull;
     if (unit != null && unit.isHt) return unit.label;
-    return '${String.fromCharCode(65 + amsId)}${trayId + 1}';
+    return amsSlotLabel(amsId, trayId);
   }
 
   Future<void> refreshSpools() async {

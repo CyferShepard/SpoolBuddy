@@ -220,6 +220,27 @@ void main() {
           [(externalAmsId, 0)]);
     });
 
+    test('H3C: per-hotend external inputs and AMS 3H slots', () {
+      BPrinterStatus h3c(bool loaded) => BPrinterStatus.fromJson({
+            'id': 1,
+            'connected': true,
+            'ams': [
+              {
+                'id': 32,
+                'tray': [for (var i = 0; i < 9; i++) {'id': i, 'state': loaded && i == 6 ? 11 : 9}]
+              }
+            ],
+            'vt_tray': [
+              for (final id in [247, 252, 254, 255]) {'id': id, 'state': loaded && id == 252 ? 11 : 9}
+            ],
+          });
+      expect(newlyLoadedSlots(h3c(false), h3c(true)), [(32, 6), (externalAmsId, 7)]);
+      expect([for (final id in [254, 255, 247, 253]) externalSlotIndex(id)], [0, 1, 2, 8]);
+      expect(externalLabel(252, 9), 'Ext 4'); // feeds hotend 3
+      expect(h3c(false).ams.single.label, 'AMS 3H');
+      expect(amsSlotLabel(32, 6), '3H-7');
+    });
+
     test('printer status parses AMS and external trays', () {
       final s = BPrinterStatus.fromJson({
         'id': 1,
@@ -297,6 +318,26 @@ void main() {
       await companion.handleCommandForTest(hb);
       expect(companion.pendingWrite!.spoolId, 7);
       expect(companion.pendingWrite!.ndefData, image);
+      expect(companion.pendingWrite!.ndefV2, isNull);
+
+      // A reply to a heartbeat sent before that write finished brings the
+      // same command again; it isn't run twice. A later one is a new request.
+      final sentBefore = companion.writesDone;
+      await companion.cancelWrite();
+      await companion.handleCommandForTest(hb, sentBefore);
+      expect(companion.pendingWrite, isNull);
+      final v2 = bambuddyEncodeNdef(Uint8List(0xA2));
+      await companion.handleCommandForTest({
+        'pending_command': 'write_tag',
+        'pending_write_payload': {
+          'spool_id': 7,
+          'ndef_data_hex': bytesToHexLower(image),
+          'ndef_v2_hex': bytesToHexLower(v2),
+        },
+      });
+      expect(companion.pendingWrite!.ndefV2, v2);
+      // The v2 message is measured as Android counts a tag's capacity.
+      expect(ndefMessageSize(parseNdefTlv(v2)), 186); // over an NTAG213's 137
 
       await companion.handleCommandForTest({'pending_command': 'apply_system_config'});
       expect(rec.calls.last.url.path, endsWith('/system/command-result'));

@@ -68,10 +68,10 @@ class _AmsPageState extends State<AmsPage> {
                   _SlotGrid(children: [
                     for (final tr in status.vtTrays)
                       _SlotTile(
-                        label: status.vtTrays.length > 1 ? (tr.id == 254 ? 'Ext-L' : 'Ext-R') : 'Ext',
+                        label: externalLabel(tr.id, status.vtTrays.length),
                         tray: tr,
                         amsId: externalAmsId,
-                        trayId: (tr.id - 254).clamp(0, 1),
+                        trayId: externalSlotIndex(tr.id),
                       ),
                   ]),
                 ]),

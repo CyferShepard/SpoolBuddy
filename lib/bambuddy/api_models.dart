@@ -145,12 +145,16 @@ class BAmsUnit {
         [for (final t in (j['tray'] as List? ?? const [])) if (t is Map<String, dynamic>) BTray.fromJson(t)],
       );
 
+  /// The H3C's AMS 3H, which Bambuddy lists as unit 32 with a slot per hotend.
+  bool get isAms3h => id == ams3hId;
+
   String get label {
     if (isHt) return 'AMS HT ${String.fromCharCode(65 + (id >= 128 ? id - 128 : id))}';
+    if (isAms3h) return 'AMS 3H';
     return 'AMS ${String.fromCharCode(65 + id)}';
   }
 
-  String slotLabel(BTray t) => isHt ? label : '${String.fromCharCode(65 + id)}${t.id + 1}';
+  String slotLabel(BTray t) => isHt ? label : amsSlotLabel(id, t.id);
 }
 
 class BPrinterStatus {
@@ -198,13 +202,32 @@ class BSlotAssignment {
 /// What the AMS external-spool holder uses as its AMS id in Bambuddy.
 const externalAmsId = 255;
 
+/// The H3C's AMS 3H unit id.
+const ams3hId = 32;
+
+/// A regular AMS or AMS 3H slot's short label: "A1", "3H-5".
+String amsSlotLabel(int amsId, int trayId) =>
+    amsId == ams3hId ? '3H-${trayId + 1}' : '${String.fromCharCode(65 + amsId)}${trayId + 1}';
+
+/// Bambuddy's tray id for the external input [vtId]: 254 → 0, 255 → 1, and
+/// on an H3C, where each hotend has one, 247–253 → 2–8.
+int externalSlotIndex(int vtId) => vtId >= 254 ? vtId - 254 : vtId - 247 + 2;
+
+/// Label of external input [vtId] when the printer has [count] of them.
+/// An H3C's input v feeds hotend 255 − v, so they're numbered by hotend.
+String externalLabel(int vtId, int count, {String single = 'Ext'}) => switch (count) {
+      1 => single,
+      2 => vtId == 254 ? 'Ext-L' : 'Ext-R',
+      _ => 'Ext ${256 - vtId}',
+    };
+
 /// Slots, as (amsId, trayId) in Bambuddy's assignment terms, that hold a spool
 /// in [now] but were empty in [before]: where a spool was just loaded.
 List<(int, int)> newlyLoadedSlots(BPrinterStatus before, BPrinterStatus now) {
   Map<(int, int), bool> presence(BPrinterStatus s) => {
         for (final u in s.ams)
           for (final t in u.trays) (u.id, t.id): t.present,
-        for (final t in s.vtTrays) (externalAmsId, (t.id - 254).clamp(0, 1)): t.present,
+        for (final t in s.vtTrays) (externalAmsId, externalSlotIndex(t.id)): t.present,
       };
   final was = presence(before);
   return [

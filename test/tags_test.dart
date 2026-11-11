@@ -107,6 +107,41 @@ void main() {
     test('too short', () {
       expect(OpenTag3D.decode(uid, Uint8List(50)), isNull);
     });
+
+    test('2.004, as Bambuddy 1.3.1 writes it', () {
+      // Laid out like Bambuddy's test_opentag3d_v2_3500.py.
+      final p = Uint8List(0xA2);
+      void text(int off, int len, String s) => p.setRange(off, off + len, ascii.encode(s.padRight(len)));
+      p[0] = 2004 >> 8;
+      p[1] = 2004 & 0xFF;
+      text(0x02, 5, 'PETG');
+      text(0x07, 5, 'HF');
+      text(0x0C, 16, 'Polymaker');
+      text(0x1C, 32, 'Jade White');
+      p.setRange(0x3C, 0x40, [0x00, 0xAE, 0x42, 0xFF]);
+      p[0x8C] = 1750 >> 8;
+      p[0x8D] = 1750 & 0xFF;
+      p[0x90] = 46; // target 230
+      p[0x91] = 46; // min 230
+      p[0x92] = 52; // max 260
+      p[0x94] = 14; // bed 70
+      p[0x9E] = 1000 >> 8;
+      p[0x9F] = 1000 & 0xFF;
+      p[0xA1] = 250;
+
+      final s = OpenTag3D.decode(uid, p)!;
+      expect(s.material, 'PETG');
+      expect(s.subtype, 'HF');
+      expect(s.brand, 'Polymaker');
+      expect(s.colorName, 'Jade White');
+      expect(s.rgba, '00AE42FF');
+      expect(s.labelWeight, 1000);
+      expect(s.coreWeight, 250);
+      expect(s.nozzleTemp, 230);
+      expect(s.bedTemp, 70);
+      expect(s.note, contains('Nozzle 230–260 °C'));
+      expect(s.note, contains('Diameter: 1.75mm'));
+    });
   });
 
   group('OpenPrintTag', () {
